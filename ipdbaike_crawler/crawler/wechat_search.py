@@ -2,9 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 Standalone script to search WeChat public articles via Sogou, without importing project packages.
+Supports "一次人工通过验证码 + 持久化 Cookie"：在浏览器里过一次验证码，把 Cookie 字符串放到文件（默认为 cookies.txt），脚本会加载并复用。
 
 Usage:
-    python wechat_search.py --query "新能源车" --limit 3 --pretty
+    python wechat_search.py --query "新能源车" --limit 3 --pretty --cookie-file cookies.txt
 
 Dependencies: requests, lxml
 """
@@ -13,7 +14,7 @@ import argparse
 import json
 import sys
 import time
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 import requests
 from lxml import html
@@ -30,7 +31,36 @@ HEADERS_COMMON = {
 }
 
 
-def sogou_weixin_search(query: str) -> List[Dict[str, str]]:
+def load_cookie_header(path: str) -> str:
+    """
+    Read the first non-empty line as Cookie header value.
+    文件内容示例：SNUID=xxx; SUID=xxx; ABTEST=7; IPLOC=CN1100; SUV=...
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    return line
+    except FileNotFoundError:
+        pass
+    return ""
+
+
+def apply_cookies_to_session(session: requests.Session, cookie_header: str) -> None:
+    """
+    Parse a simple "k=v; k2=v2" cookie header into session cookies for both weixin.sogou.com and mp.weixin.qq.com.
+    """
+    if not cookie_header:
+        return
+    parts = [p.strip() for p in cookie_header.split(";") if "=" in p]
+    for part in parts:
+        name, value = part.split("=", 1)
+        for domain in ["weixin.sogou.com", "mp.weixin.qq.com"]:
+            session.cookies.set(name.strip(), value.strip(), domain=domain)
+
+
+def sogou_weixin_search(query: str, session: requests.Session) -> List[Dict[str, str]]:
     """
     Search WeChat articles on Sogou and return basic metadata.
     """
@@ -46,7 +76,7 @@ def sogou_weixin_search(query: str) -> List[Dict[str, str]]:
         "_sug_": "n",
         "_sug_type_": "",
     }
-    response = requests.get("https://weixin.sogou.com/weixin", params=params, headers=headers, timeout=15)
+    response = session.get("https://weixin.sogou.com/weixin", params=params, headers=headers, timeout=15)
     response.raise_for_status()
 
     tree = html.fromstring(response.text)
@@ -71,16 +101,12 @@ def sogou_weixin_search(query: str) -> List[Dict[str, str]]:
     return results
 
 
-def get_real_url(sogou_url: str) -> str:
+def get_real_url(sogou_url: str, session: requests.Session) -> str:
     """
     Extract the real mp.weixin.qq.com article URL from the Sogou jump page.
     """
-    headers = {
-        **HEADERS_COMMON,
-        "Cookie": "ABTEST=7; SUID=0A5BF4788E52A20B; IPLOC=CN1100; SUV=006817F578F45BFE",
-    }
     # First try to read the redirect target (often 302 Location on Sogou jump page)
-    resp = requests.get(sogou_url, headers=headers, timeout=15, allow_redirects=False)
+    resp = session.get(sogou_url, headers=HEADERS_COMMON, timeout=15, allow_redirects=False)
     if resp.is_redirect or resp.is_permanent_redirect:
         loc = resp.headers.get("Location", "")
         if loc:
@@ -92,7 +118,7 @@ def get_real_url(sogou_url: str) -> str:
             return loc
 
     # If not redirected, parse the JS concat on the page
-    resp = requests.get(sogou_url, headers=headers, timeout=15)
+    resp = session.get(sogou_url, headers=HEADERS_COMMON, timeout=15)
     resp.raise_for_status()
 
     import re
@@ -109,7 +135,7 @@ def get_real_url(sogou_url: str) -> str:
     return "https://" + joined.lstrip("/")
 
 
-def get_article_content(real_url: str, referer: str) -> str:
+def get_article_content(real_url: str, referer: str, session: requests.Session) -> str:
     """
     Fetch article HTML and extract readable text.
     """
@@ -118,7 +144,7 @@ def get_article_content(real_url: str, referer: str) -> str:
         "Referer": referer,
         "Upgrade-Insecure-Requests": "1",
     }
-    resp = requests.get(real_url, headers=headers, timeout=15)
+    resp = session.get(real_url, headers=headers, timeout=15)
     resp.raise_for_status()
     tree = html.fromstring(resp.text)
     content_elements = tree.xpath("//div[@id='js_content']//text()")
@@ -126,19 +152,23 @@ def get_article_content(real_url: str, referer: str) -> str:
     return "\n".join(cleaned_content)
 
 
-def get_wechat_article(query: str, number: int = 10) -> List[Dict[str, Any]]:
+def get_wechat_article(query: str, number: int, cookie_header: str) -> List[Dict[str, Any]]:
     """
     Search and fetch full articles (title, time, real_url, content).
     """
     start_time = time.time()
-    results = sogou_weixin_search(query)
+    session = requests.Session()
+    session.headers.update(HEADERS_COMMON)
+    apply_cookies_to_session(session, cookie_header)
+
+    results = sogou_weixin_search(query, session=session)
     if not results:
         return []
     articles = []
     for entry in results[:number]:
         sogou_link = entry["link"]
-        real_url = get_real_url(sogou_link)
-        content = get_article_content(real_url, referer=sogou_link) if real_url else ""
+        real_url = get_real_url(sogou_link, session=session)
+        content = get_article_content(real_url, referer=sogou_link, session=session) if real_url else ""
         articles.append(
             {
                 "title": entry["title"],
@@ -156,11 +186,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Search WeChat public articles (via Sogou).")
     parser.add_argument("-q", "--query", required=True, help="Keyword to search")
     parser.add_argument("-n", "--limit", type=int, default=5, help="Number of articles to fetch (default: 5)")
+    parser.add_argument("--cookie-file", default="cookies.txt", help="Cookie 文件路径（默认 cookies.txt）")
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
     args = parser.parse_args()
 
+    cookie_header = load_cookie_header(args.cookie_file)
+    if not cookie_header:
+        print(f"提示：未找到 Cookie，可能仍会被反爬。请将浏览器里通过验证码后的 Cookie 放到 {args.cookie_file}", file=sys.stderr)
+
     try:
-        results = get_wechat_article(query=args.query, number=args.limit)
+        results = get_wechat_article(query=args.query, number=args.limit, cookie_header=cookie_header)
     except Exception as exc:  # noqa: BLE001
         print(f"Search failed: {exc}", file=sys.stderr)
         sys.exit(1)
