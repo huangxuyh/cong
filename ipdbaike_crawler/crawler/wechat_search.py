@@ -79,23 +79,34 @@ def get_real_url(sogou_url: str) -> str:
         **HEADERS_COMMON,
         "Cookie": "ABTEST=7; SUID=0A5BF4788E52A20B; IPLOC=CN1100; SUV=006817F578F45BFE",
     }
+    # First try to read the redirect target (often 302 Location on Sogou jump page)
+    resp = requests.get(sogou_url, headers=headers, timeout=15, allow_redirects=False)
+    if resp.is_redirect or resp.is_permanent_redirect:
+        loc = resp.headers.get("Location", "")
+        if loc:
+            loc = loc.replace("@", "").replace(" ", "")
+            if loc.startswith("//"):
+                loc = "https:" + loc
+            elif not loc.startswith("http"):
+                loc = "https://" + loc.lstrip("/")
+            return loc
+
+    # If not redirected, parse the JS concat on the page
     resp = requests.get(sogou_url, headers=headers, timeout=15)
     resp.raise_for_status()
 
-    script_content = resp.text
-    start_index = script_content.find("url += '") + len("url += '")
-    url_parts = []
-    while True:
-        part_start = script_content.find("url += '", start_index)
-        if part_start == -1:
-            break
-        part_end = script_content.find("'", part_start + len("url += '"))
-        part = script_content[part_start + len("url += '") : part_end]
-        url_parts.append(part)
-        start_index = part_end + 1
+    import re
 
-    full_url = "".join(url_parts).replace("@", "")
-    return "https://mp." + full_url
+    parts = re.findall(r"url \\+= '([^']+)'", resp.text)
+    if not parts:
+        return ""
+    joined = "".join(parts).replace("@", "")
+
+    if joined.startswith("http"):
+        return joined
+    if joined.startswith("//"):
+        return "https:" + joined
+    return "https://" + joined.lstrip("/")
 
 
 def get_article_content(real_url: str, referer: str) -> str:
