@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Standalone script to search WeChat public articles via Sogou, without importing project packages.
-Supports "一次人工通过验证码 + 持久化 Cookie"：在浏览器里过一次验证码，把 Cookie 字符串放到文件（默认为 cookies.txt），脚本会加载并复用。
+支持 “一次人工通过验证码 + 持久化 Cookie”：在浏览器里过一次验证码，把 Cookie 字符串放到文件（默认为 cookies.txt），脚本会加载并复用。
 
 Usage:
     python wechat_search.py --query "新能源车" --limit 3 --pretty --cookie-file cookies.txt
@@ -33,7 +33,7 @@ HEADERS_COMMON = {
 
 def load_cookie_header(path: str) -> str:
     """
-    Read the first non-empty line as Cookie header value.
+    读取 Cookie 文件的首条非空行作为 Cookie 头。
     文件内容示例：SNUID=xxx; SUID=xxx; ABTEST=7; IPLOC=CN1100; SUV=...
     """
     try:
@@ -49,7 +49,7 @@ def load_cookie_header(path: str) -> str:
 
 def apply_cookies_to_session(session: requests.Session, cookie_header: str) -> None:
     """
-    Parse a simple "k=v; k2=v2" cookie header into session cookies for both weixin.sogou.com and mp.weixin.qq.com.
+    将 "k=v; k2=v2" 的 Cookie 头注入 session，覆盖搜狗与微信域名。
     """
     if not cookie_header:
         return
@@ -62,7 +62,7 @@ def apply_cookies_to_session(session: requests.Session, cookie_header: str) -> N
 
 def sogou_weixin_search(query: str, session: requests.Session) -> List[Dict[str, str]]:
     """
-    Search WeChat articles on Sogou and return basic metadata.
+    在搜狗检索文章，返回标题/链接/时间。
     """
     headers = {
         **HEADERS_COMMON,
@@ -103,7 +103,7 @@ def sogou_weixin_search(query: str, session: requests.Session) -> List[Dict[str,
 
 def get_real_url(sogou_url: str, session: requests.Session) -> str:
     """
-    Extract the real mp.weixin.qq.com article URL from the Sogou jump page.
+    解析搜狗跳转页，获取真实 mp.weixin.qq.com 链接（优先 302，其次 JS 拼接）。
     """
     # First try to read the redirect target (often 302 Location on Sogou jump page)
     resp = session.get(sogou_url, headers=HEADERS_COMMON, timeout=15, allow_redirects=False)
@@ -137,7 +137,7 @@ def get_real_url(sogou_url: str, session: requests.Session) -> str:
 
 def get_article_content(real_url: str, referer: str, session: requests.Session) -> str:
     """
-    Fetch article HTML and extract readable text.
+    拉取微信文章正文，提取 #js_content 文本。
     """
     headers = {
         **HEADERS_COMMON,
@@ -154,7 +154,7 @@ def get_article_content(real_url: str, referer: str, session: requests.Session) 
 
 def get_wechat_article(query: str, number: int, cookie_header: str) -> List[Dict[str, Any]]:
     """
-    Search and fetch full articles (title, time, real_url, content).
+    搜索并抓取文章正文，使用持久化 Cookie 提升成功率。
     """
     start_time = time.time()
     session = requests.Session()

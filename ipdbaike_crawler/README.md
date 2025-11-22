@@ -26,13 +26,22 @@ ipdbaike_crawler/
 ```bash
 pip install requests beautifulsoup4
 ```
-2) 运行（在仓库根目录）：
+2)（如需 Playwright 抓微信公众号验证码）安装：
 ```bash
-python -m crawler.main
+pip install playwright
+python -m playwright install chromium
 ```
-3) 输出：
-- 文章保存在 `output/articles/`，Markdown 文件包含源 URL。
-- 附件保存在 `output/attachments/`。
+3) 运行（在仓库根目录）：
+```bash
+# 默认爬 ipdbaike
+python -m crawler.main
+# 爬其他站点（示例 zentao 博客 / pdma 社区）
+python -m crawler.main --site zentao_blog
+python -m crawler.main --site pdma
+```
+4) 输出：
+- 文章保存在 `output/<site>_output/articles/`，Markdown 文件包含源 URL。
+- 附件保存在 `output/<site>_output/attachments/`。
 - 日志写到 `logs/crawler.log` 并同步输出到控制台。
 
 ## 配置说明
@@ -42,7 +51,10 @@ python -m crawler.main
   - `MAX_PAGES`: 全局抓取上限，防止跑太久。可按需加大或设为很大值。
   - `DELAY_SECONDS`: 抓取间隔，避免过快触发限流。
   - `ATTACHMENT_EXTS`: 需要下载的附件扩展名白名单。
-  - 路径：输出目录、日志目录可在此调整。
+- 路径：输出目录、日志目录可在此调整。
+
+### 扩展新站点
+在 `crawler/config.py` 的 `SITE_CONFIGS` 中新增条目，配置 `base_url`、`start_urls`、`allowed_domains`、`article_pattern`、`attachment_exts`、`max_depth`、`max_pages`、`delay_seconds`，即可通过 `--site your_key` 启动。
 
 ## 运行策略
 - **优先 Jina**：`fetch_via_jina` 先取 markdown，失败再直连抓 html。

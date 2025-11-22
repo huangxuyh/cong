@@ -34,7 +34,7 @@ def open_browser(headless: bool) -> Browser:
 
 
 def save_cookies_header(page: Page, cookie_file: Path) -> None:
-    """Extract cookies for sogou/wechat domains and save as a header line."""
+    """提取搜狗/微信相关 Cookie，保存为一行 Cookie 头，供 requests 复用。"""
     cookies = page.context.cookies()
     wanted = {}
     for c in cookies:

@@ -3,6 +3,7 @@ from typing import Deque, Optional, Set, Tuple
 
 
 class CrawlQueue:
+    """简单的 BFS 队列，记录已访问，避免重复抓取。"""
     def __init__(self) -> None:
         self.queue: Deque[Tuple[str, int]] = deque()
         self.visited: Set[str] = set()

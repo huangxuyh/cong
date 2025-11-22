@@ -1,31 +1,34 @@
 import logging
-import os
 from pathlib import Path
 from typing import Optional
 
 import requests
 
-from .config import HEADERS, OUTPUT_ARTICLE_DIR, OUTPUT_ATTACHMENT_DIR
+from .config import HEADERS
 
 
 def _safe_title(title: str) -> str:
     return "".join(c if (c.isalnum() or c in (" ", "_", "-")) else "_" for c in title).strip()
 
 
-def save_markdown_article(url: str, title: str, content: str) -> Path:
-    OUTPUT_ARTICLE_DIR.mkdir(parents=True, exist_ok=True)
+def save_markdown_article(url: str, title: str, content: str, output_dir: Path) -> Path:
+    """保存文章为 markdown 文件，文件名基于安全化标题。"""
+    output_dir.mkdir(parents=True, exist_ok=True)
     safe_title = _safe_title(title) or "untitled"
-    filepath = OUTPUT_ARTICLE_DIR / f"{safe_title}.md"
+    filepath = output_dir / f"{safe_title}.md"
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(f"# {title}\n\nURL: {url}\n\n{content}")
     logging.info("Article saved: %s", filepath)
     return filepath
 
 
-def save_attachment(file_url: str, referer: Optional[str] = None) -> Optional[Path]:
-    OUTPUT_ATTACHMENT_DIR.mkdir(parents=True, exist_ok=True)
+def save_attachment(file_url: str, output_dir: Path, referer: Optional[str] = None) -> Optional[Path]:
+    """
+    下载附件到指定目录，透传 Referer 以兼容防盗链。失败会清理不完整文件。
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
     local_name = file_url.split("/")[-1] or "attachment.bin"
-    filepath = OUTPUT_ATTACHMENT_DIR / local_name
+    filepath = output_dir / local_name
     if filepath.exists():
         logging.info("Attachment already exists, skip: %s", filepath)
         return filepath
