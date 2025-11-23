@@ -50,6 +50,7 @@ def load_cookie_header(path: str) -> str:
 def apply_cookies_to_session(session: requests.Session, cookie_header: str) -> None:
     """
     将 "k=v; k2=v2" 的 Cookie 头注入 session，覆盖搜狗与微信域名。
+    - 保持与浏览器一致的 Cookie，降低反爬概率。
     """
     if not cookie_header:
         return
@@ -63,6 +64,7 @@ def apply_cookies_to_session(session: requests.Session, cookie_header: str) -> N
 def sogou_weixin_search(query: str, session: requests.Session) -> List[Dict[str, str]]:
     """
     在搜狗检索文章，返回标题/链接/时间。
+    - 结果链接通常为搜狗跳转页，需要后续解析 real_url。
     """
     headers = {
         **HEADERS_COMMON,
@@ -104,6 +106,7 @@ def sogou_weixin_search(query: str, session: requests.Session) -> List[Dict[str,
 def get_real_url(sogou_url: str, session: requests.Session) -> str:
     """
     解析搜狗跳转页，获取真实 mp.weixin.qq.com 链接（优先 302，其次 JS 拼接）。
+    - 若返回 antispider，需要刷新 Cookie 或人工验证。
     """
     # First try to read the redirect target (often 302 Location on Sogou jump page)
     resp = session.get(sogou_url, headers=HEADERS_COMMON, timeout=15, allow_redirects=False)
